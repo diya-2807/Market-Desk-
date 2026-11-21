@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import yfinance as yf
 import numpy as np
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 st.set_page_config(
@@ -52,9 +53,6 @@ else:
     PURPLE = "#c49bff"
 
 
-from pathlib import Path
-import streamlit as st
-
 css_path = Path(__file__).parent / "market.css"
 css = css_path.read_text(encoding="utf-8")
 
@@ -74,7 +72,7 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- PREMIUM DARK UI ----------
+# ---------- PREMIUM UI ----------
 
 
 st.markdown(f"""
@@ -104,8 +102,8 @@ st.markdown(f"""
 }}
 
 [data-testid="stSidebar"] div[data-baseweb="select"] > div {{
-    background-color: {PANEL};
-    border-color: {GRID};
+    background-color: {PANEL} !important;
+    border-color: {GRID} !important;
     color: {TEXT};
 }}
 
@@ -153,39 +151,26 @@ div[data-baseweb="popover"] * {{
 hr {{
     border-color: {GRID};
 }}
- [data-testid="stSidebar"] div[data-baseweb="select"] > div {{
-    background-color: #ffffff !important;
-    border: 1px solid #d5deea !important;
-}}
 
 [data-testid="stSidebar"] div[data-baseweb="select"] span,
 [data-testid="stSidebar"] div[data-baseweb="select"] input {{
-    color: #172033 !important;
-    -webkit-text-fill-color: #172033 !important;
+    color: {TEXT} !important;
+    -webkit-text-fill-color: {TEXT} !important;
 }}
 
 [data-testid="stSidebar"] input::placeholder {{
-    color: #7b8798 !important;
-    -webkit-text-fill-color: #7b8798 !important;
+    color: {MUTED} !important;
+    -webkit-text-fill-color: {MUTED} !important;
     opacity: 1 !important;
 }}
 
 [data-testid="stSidebar"] div[data-baseweb="select"] svg {{
-    fill: #172033 !important;
-    color: #172033 !important;
+    fill: {TEXT} !important;
+    color: {TEXT} !important;
 }}
 
 [data-testid="stRadio"] label {{
-    color: #172033 !important;
-}}
-[data-testid="stSidebar"] div[data-baseweb="select"] svg {{
-    color: #172033 !important;
-    fill: #172033 !important;
-}}
-
-[data-testid="stSidebar"] div[data-baseweb="select"] > div {{
-    background-color: #ffffff !important;
-    border-color: #d5deea !important;
+    color: {TEXT} !important;
 }}
 </style>
 """, unsafe_allow_html=True)
@@ -274,14 +259,25 @@ ticker = custom_ticker if custom_ticker else selected_ticker
 
 st.sidebar.caption(f"Selected symbol: `{ticker}`")
 
+# ---------- VALID INTERVAL / PERIOD COMBINATIONS ----------
+# yfinance limits: 1m → max 7d, 5m/15m → max 60d, 1d → any
+_valid_periods = {
+    "1 minute":   ["1 day", "5 days"],
+    "5 minutes":  ["1 day", "5 days", "1 month"],
+    "15 minutes": ["1 day", "5 days", "1 month"],
+    "1 day":      ["1 day", "5 days", "1 month", "3 months"],
+}
+
 timeframe = st.sidebar.selectbox(
     "Chart timeframe",
     ["1 minute", "5 minutes", "15 minutes", "1 day"]
 )
 
+valid_periods_for_tf = _valid_periods[timeframe]
+
 period = st.sidebar.selectbox(
     "History",
-    ["1 day", "5 days", "1 month", "3 months"]
+    valid_periods_for_tf,
 )
 
 auto_refresh = st.sidebar.checkbox(
@@ -414,7 +410,17 @@ change_pct = (
     if previous["Close"] else 0
 )
 
-currency = "" if ticker.startswith("^") else "₹"
+# Determine currency symbol based on asset type
+is_index = ticker.startswith("^")
+is_currency = ticker.endswith("=X")
+is_futures = ticker.endswith("=F")
+
+if is_index or is_currency or is_futures:
+    currency = ""
+elif ticker.endswith(".NS") or ticker.endswith(".BO"):
+    currency = "₹"
+else:
+    currency = "$"
 
 # ---------- TOP METRICS ----------
 a, b, c, d = st.columns(4)
@@ -451,7 +457,14 @@ chart_type = st.radio(
     ["Candlestick", "Line", "Area"],
     horizontal=True
 )
-chart_x = data.index.strftime("%H:%M")
+
+# Use appropriate x-axis format based on interval
+is_intraday = intervals[timeframe] in ("1m", "5m", "15m")
+if is_intraday:
+    chart_x = data.index.strftime("%H:%M")
+else:
+    chart_x = data.index.strftime("%d %b")
+
 fig = go.Figure()
 
 if chart_type == "Candlestick":
@@ -508,44 +521,38 @@ fig.update_layout(
     paper_bgcolor=BG,
     plot_bgcolor=BG,
     font=dict(
-    family="Arial, sans-serif",
-    size=12,
-    color=TEXT
-   ),
+        family="Arial, sans-serif",
+        size=12,
+        color=TEXT
+    ),
     height=440,
     margin=dict(l=10, r=10, t=30, b=10),
     hovermode="x unified",
     dragmode="pan",
-
-   
-
-xaxis=dict(
-    type="category",
-    showgrid=False,
-    tickangle=0,
-    nticks=6,
-    tickformat="%H:%M",
-    tickfont=dict(color=TEXT, size=10),
-    rangeslider=dict(visible=False),
-    showspikes=True,
-    spikemode="across",
-    spikesnap="cursor"
-),
-
-
-   yaxis=dict(
-    side="right",
-    showgrid=True,
-    gridcolor=GRID,
-    tickfont=dict(color=TEXT, size=10),
-    autorange=True,
-    automargin=True
-),
+    xaxis=dict(
+        type="category",
+        showgrid=False,
+        tickangle=0,
+        nticks=6,
+        tickfont=dict(color=TEXT, size=10),
+        rangeslider=dict(visible=False),
+        showspikes=True,
+        spikemode="across",
+        spikesnap="cursor"
+    ),
+    yaxis=dict(
+        side="right",
+        showgrid=True,
+        gridcolor=GRID,
+        tickfont=dict(color=TEXT, size=10),
+        autorange=True,
+        automargin=True
+    ),
     legend=dict(
-    orientation="h",
-    y=1.04,
-    x=0,
-    font=dict(color=TEXT, size=11)
+        orientation="h",
+        y=1.04,
+        x=0,
+        font=dict(color=TEXT, size=11)
     ),
 )
 
@@ -585,8 +592,6 @@ with left:
         line_color="#20c997"
     )
 
-    
-
     rsi_fig.update_layout(
         template="plotly_white" if is_light else "plotly_dark",
         paper_bgcolor=BG,
@@ -607,8 +612,6 @@ with left:
             range=[0, 100]
         )
     )
-
-
 
     st.plotly_chart(rsi_fig, use_container_width=True)
 
@@ -631,33 +634,31 @@ with right:
         line=dict(color="#ffbf69", width=1.5)
     ))
 
-    
     macd_fig.update_layout(
-    template="plotly_white" if is_light else "plotly_dark",
-    paper_bgcolor=BG,
-    plot_bgcolor=BG,
-    font=dict(color=TEXT, size=11),
-    height=300,
-    margin=dict(l=10, r=10, t=30, b=10),
-    xaxis=dict(
-        showgrid=False,
-        tickangle=0,
-        nticks=6,
-        tickfont=dict(color=TEXT, size=10)
-    ),
-    yaxis=dict(
-        showgrid=True,
-        gridcolor=GRID,
-        tickfont=dict(color=TEXT, size=10)
-    ),
-    legend=dict(
-        orientation="h",
-        y=1.05,
-        x=0,
-        font=dict(color=TEXT, size=10)
+        template="plotly_white" if is_light else "plotly_dark",
+        paper_bgcolor=BG,
+        plot_bgcolor=BG,
+        font=dict(color=TEXT, size=11),
+        height=300,
+        margin=dict(l=10, r=10, t=30, b=10),
+        xaxis=dict(
+            showgrid=False,
+            tickangle=0,
+            nticks=6,
+            tickfont=dict(color=TEXT, size=10)
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor=GRID,
+            tickfont=dict(color=TEXT, size=10)
+        ),
+        legend=dict(
+            orientation="h",
+            y=1.05,
+            x=0,
+            font=dict(color=TEXT, size=10)
+        )
     )
-)
-
 
     st.plotly_chart(macd_fig, use_container_width=True)
 
